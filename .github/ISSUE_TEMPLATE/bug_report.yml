@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a problem you're having with the mod.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to fill out this bug report!
+
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: "Describe the bug clearly."
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: "How do you trigger this bug? Please walk us through it step by step."
+      value: |
+        1.
+        2.
+        3.
+        ...
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: Mod version
+      placeholder: e.g. 1.0
+
+  - type: input
+    attributes:
+      label: CSP version
+      placeholder: e.g. 0.3.0p212
