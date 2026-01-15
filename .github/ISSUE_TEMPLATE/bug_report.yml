@@ -10,7 +10,7 @@ body:
 
   - type: textarea
     attributes:
-      label: What happened?
+      label: Bug description:
       description: "Describe the bug clearly."
     validations:
       required: true
@@ -32,8 +32,10 @@ body:
     attributes:
       label: Mod version
       placeholder: e.g. 1.0
+      required: true
 
   - type: input
     attributes:
       label: CSP version
       placeholder: e.g. 0.3.0p212
+      required: true
