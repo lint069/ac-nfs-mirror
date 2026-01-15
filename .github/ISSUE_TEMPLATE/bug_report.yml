@@ -32,10 +32,12 @@ body:
     attributes:
       label: Mod version
       placeholder: e.g. 1.0
+    validations:
       required: true
 
   - type: input
     attributes:
       label: CSP version
       placeholder: e.g. 0.3.0p212
+    validations:
       required: true
