@@ -1,10 +1,7 @@
---[[
+--Thanks to @takeyoh and his antiorbis app.
 
-    I took this code from takeyoh's antiorbis app, if takeyoh has any issues with me reusing his data, please let me know and I will remove it.
-
-]]
-
-function OrbisList()
+---@return table @Returns a table containing the positions of all speedtraps on srp.
+function getOrbisPositions()
     local orbis = {}
 
     orbis[1] = {}
