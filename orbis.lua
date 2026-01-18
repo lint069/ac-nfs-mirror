@@ -1,4 +1,5 @@
---Thanks to @takeyoh and his antiorbis app.
+---@diagnostic disable: lowercase-global
+--Big thanks to @takeyoh and his antiorbis app.
 
 ---@return table @Returns a table containing the positions of all speedtraps on srp.
 function getOrbisPositions()
