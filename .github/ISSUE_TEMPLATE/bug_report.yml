@@ -1,13 +1,8 @@
 name: Bug report
 description: Report a problem you're having with the mod.
-title: "[Bug]: "
+title: "Bug report"
 labels: ["bug"]
 body:
-  - type: markdown
-    attributes:
-      value: |
-        Thank you for taking the time to fill out this bug report!
-
   - type: textarea
     attributes:
       label: "Bug description:"
@@ -18,11 +13,11 @@ body:
     id: repro
     attributes:
       label: "Reproduction steps"
-      description: "How do you trigger this bug? Please walk us through it step by step."
-      value: |
-        1.
-        2.
-        3.
+      description: "How do you trigger this bug?"
+      placeholder: |
+        1. 
+        2. 
+        3. 
         ...
     validations:
       required: false
@@ -40,3 +35,8 @@ body:
       placeholder: e.g. 0.3.0p212
     validations:
       required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the report!
