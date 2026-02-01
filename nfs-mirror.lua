@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil
+---It's not a bug, it's a feature. - me
+---@diagnostic disable: need-check-nil, lowercase-global
 
 require 'orbis'
 
@@ -7,12 +8,13 @@ require 'orbis'
 local settings = ac.storage {
     appScale = 1,
     centerApp = true,
+    SimplifiedComposition = false,
 
     orbisIndicator = true,
     lightsIndicator = true,
     arrowIndicator = false,
 
-    mirrorTransparent = false,
+    mirrorOpacity = 1,
     fadeArrow = true,
     excludeAI = false,
     indicatorActiveRange = 30, --in meters
@@ -22,17 +24,19 @@ local app = {
     version = 0.00,
     images = {
         mirror = '.\\assets\\mirror.dds',
-        lights = '.\\assets\\lights.dds',
-        arrow = '.\\assets\\arrow.dds',
+        lights = '.\\assets\\led.png',
+        arrow = '.\\assets\\arrow.png',
     },
 }
 
 local colors = {
-    mirror = rgbm(1, 1, 1, 1),
+    mirror = rgbm(0, 0, 0, 1),
+    led = rgbm(0.74, 0.93, 0.25, 1),
+    ledWarn = rgbm(0.98, 0.66, 0.25, 1),
 
-    circleInner = rgbm(0.5, 0.6, 0.19, 0.9),
-    circleFill = rgbm(0.26, 0.29, 0.12, 0.8),
-    circleOuter = rgbm(0.36, 0.4, 0.22, 0.6),
+    circleInner = rgbm(0.5, 0.6, 0.19, 0.8),
+    circleFill = rgbm(0.26, 0.29, 0.12, 0.5),
+    circleOuter = rgbm(0.36, 0.4, 0.22, 0.5),
 
     issueButton = {
         idle = rgbm(0.5, 0.2, 0.18, 1),
@@ -46,6 +50,7 @@ local colors = {
 local sim = ac.getSim()
 local isOnlineRace = sim.isOnlineRace
 local trackFolderName = ac.getTrackID()
+local cspVersion = ac.getPatchVersionCode()
 
 --#region helper functions
 
@@ -61,16 +66,8 @@ end
 local function tooltip(tooltipText, cursorType)
     if ui.itemHovered() then
         if cursorType then ui.setMouseCursor(cursorType) end
-        if not ui.isMouseDragging(ui.MouseButton.Left, 25) then
-            ui.tooltip(vec2(7, 4), function() ui.text(tooltipText) end)
-        end
+        ui.tooltip(vec2(7, 4), function() ui.text(tooltipText) end)
     end
-end
-
----Converts degrees to radians.
----@param deg number
-local function degToRad(deg)
-    return deg * math.pi / 180
 end
 
 --#endregion
@@ -92,7 +89,7 @@ end
 
 ---@return boolean @Returns true if the currently focused car is in the range of 400m of any orbis.
 local function isOrbisInRange()
-	if not string.match(trackFolderName, "shuto_revival_project") then
+	if not string.match(trackFolderName, 'shuto_revival_project' or 'shutoko_revival_project') then
 		return false
 	end
 
@@ -119,26 +116,28 @@ end
 
 local function drawMirror()
     local virtualMirrorPos = vec2(15, 16):scale(settings.appScale)
-    local virtualMirrorSize = vec2(471, 132):scale(settings.appScale)
-    local whitePoint = 1.3 - (sim.lightSuggestion * 0.5)
+    local virtualMirrorSize = vec2(471, 130):scale(settings.appScale)
+    local whitePoint = 1.3 - (sim.lightSuggestion * 0.5) --this needs adjusting
 
     ui.beginTonemapping()
     ui.drawVirtualMirror(virtualMirrorPos, virtualMirrorPos + virtualMirrorSize)
-    ui.endTonemapping(1, whitePoint, true) --FIXME: !?
+    ui.endTonemapping(1, whitePoint, true)
 
     local mirrorPos = vec2(0, 0)
-    local mirrorSize = vec2(500, 193):scale(settings.appScale)
+    local mirrorSize = vec2(500, 190):scale(settings.appScale)
+    colors.mirror:set(rgb(1, 1, 1), settings.mirrorOpacity)
 
     ui.drawImage(app.images.mirror, mirrorPos, mirrorPos + mirrorSize, colors.mirror)
 end
 
 local function drawRing()
-    local center = vec2(250, 183):scale(settings.appScale)
-    local arcStart, arcEnd = degToRad(180), degToRad(360)
+    local center = vec2(250, 180):scale(settings.appScale)
+    local arcStart, arcEnd = math.rad(180), math.rad(360)
     local radiusInner, radiusOuter = scale(16), scale(26)
     local segments = 22
     local arcThickness = scale(4)
 
+    --using 4 segments here for most likely an unnoticeable performance gain
     ui.pathArcTo(center, radiusInner, arcStart, arcEnd, 4)
     ui.pathFillConvex(colors.circleFill)
 
@@ -147,59 +146,73 @@ local function drawRing()
 
     ui.pathArcTo(center, radiusInner, arcStart, arcEnd, segments)
     ui.pathStroke(colors.circleInner, false, arcThickness)
+
+    if settings.orbisIndicator and isOrbisInRange() then
+        colors.circleFill:set(rgb(0.68, 0.46, 0.15), colors.circleFill.mult)
+        colors.circleOuter:set(rgb(0.48, 0.3, 0.1), colors.circleOuter.mult)
+        colors.circleInner:set(rgb(0.88, 0.6, 0.2), colors.circleInner.mult)
+    else
+        colors.circleFill:set(rgbm(0.26, 0.29, 0.12, 0.5))
+        colors.circleOuter:set(rgbm(0.36, 0.4, 0.22, 0.5))
+        colors.circleInner:set(rgbm(0.5, 0.6, 0.19, 0.8))
+    end
 end
 
-local function drawLight()
-    local lightPos = vec2(0, 0)
-    local lightSize = vec2(500, 200)
+local blinkTimer = 0
 
-    local blinkPeriod = 0.5 --seconds
-    local onFraction = 0.5 --percent `1.0 = 100%`
+---@param dt number @Delta time.
+local function drawLight(dt)
+    local lightPos = vec2(20, 135):scale(settings.appScale)
+    local lightSize = vec2(459, 68):scale(settings.appScale)
+
+    local orbisActive = settings.orbisIndicator and isOrbisInRange()
+
+    local blinkTime = 2 --seconds
+    blinkTimer = blinkTimer + dt
+
+    if orbisActive and (blinkTimer % blinkTime) < (blinkTime * 0.5) then
+        ui.drawImage(app.images.lights, lightPos, lightPos + lightSize, colors.ledWarn)
+    end
 
     local nearestCar = ac.getCar.ordered(1)
     if nearestCar == nil then return end
 
-    local nearestIsAI = nearestCar.isHidingLabels
     local inRange = nearestCar.distanceToCamera <= settings.indicatorActiveRange
-    local orbisActive = settings.orbisIndicator and isOrbisInRange()
 
-    if orbisActive and (sim.time % blinkPeriod) < (blinkPeriod * onFraction) then
-        ui.drawImage(app.images.lights, lightPos, lightPos + lightSize, rgbm.colors.white)
-    end
-
-    if not inRange or orbisActive or (settings.excludeAI and nearestIsAI) then return end
+    if not inRange or orbisActive or (settings.excludeAI and nearestCar.isHidingLabels) then return end
 
 	if settings.lightsIndicator then
-		ui.drawImage(app.images.lights, lightPos, lightPos + lightSize, rgbm.colors.white)
+		ui.drawImage(app.images.lights, lightPos, lightPos + lightSize, colors.led)
 	end
 end
 
 local function drawArrow()
-    if not isOnlineRace then return end
-
+    local playerCar = ac.getCar.ordered(0)
     local nearestCar = ac.getCar.ordered(1)
     if nearestCar == nil then return end
 
-    --[[ nearestCar.isRemote | nearestCar.isAIControlled ]]
-    local nearestIsAI = nearestCar.isHidingLabels
     local inRange = nearestCar.distanceToCamera <= settings.indicatorActiveRange
     local orbisActive = settings.orbisIndicator and isOrbisInRange()
 
-    local arrowPos = vec2(210, 145)
-    local arrowSize = vec2(70, 70)
+    local arrowPos = vec2(223, 152):scale(settings.appScale)
+    local arrowSize = vec2(55, 55):scale(settings.appScale)
 
-    if orbisActive or not inRange or (nearestIsAI and settings.excludeAI) then return end
+    if not inRange or orbisActive or (settings.excludeAI and nearestCar.isHidingLabels) then return end
 
     if settings.arrowIndicator then
-        local look_vec3 = ac.getCar.ordered(0).look
-        local diff_vec3 = nearestCar.position - ac.getCar.ordered(0).position
+        local lookVec3 = playerCar.look
+        local diffVec3 = nearestCar.position - playerCar.position
 
-        local look_vec2 = vec2(look_vec3.x, look_vec3.z)
-        local diff_vec2 = vec2(diff_vec3.x, diff_vec3.z)
-        local angle = math.deg(look_vec2:angle(diff_vec2))
-        local cross = look_vec2.x * diff_vec2.y - look_vec2.y * diff_vec2.x
+        local lookVec2 = vec2(lookVec3.x, lookVec3.z)
+        local diffVec2 = vec2(diffVec3.x, diffVec3.z)
 
-        if cross >= 0 then angle = -angle end
+        local angle = math.deg(lookVec2:angle(diffVec2))
+        local cross = lookVec2.x * diffVec2.y - lookVec2.y * diffVec2.x
+
+        if cross >= 0 then
+            angle = -angle
+        end
+
         angle = angle + 90
 
         local startFade = settings.indicatorActiveRange / 2
@@ -221,19 +234,22 @@ function script.settings()
         ui.tabItem('App', function()
 			if ui.checkbox('Force App to Center', settings.centerApp) then settings.centerApp = not settings.centerApp end
 
-            if ui.checkbox('Transparency', settings.mirrorTransparent) then settings.mirrorTransparent = not settings.mirrorTransparent end
-            tooltip('Toggles mirror transparency.\nLimited to avoid exposing the ugly virtual mirror edges.')
+            --0.3.0-preview110
+            if cspVersion >= 3637 then
+                if ui.checkbox('Disable ImGui Frost Effect', settings.SimplifiedComposition) then settings.SimplifiedComposition = not settings.SimplifiedComposition end
+            end
+
+            settings.mirrorOpacity = ui.slider('##mirrorOpacity', settings.mirrorOpacity, 0.75, 1, string.format('Opacity: %.0f%%%%', settings.mirrorOpacity * 100))
+            if ui.itemHovered() then ui.setMouseCursor(ui.MouseCursor.ResizeEW) end
 
             settings.appScale = ui.slider('##appScale', settings.appScale, 0.5, 1.5, 'App Scale: %.1f')
             if ui.itemHovered() then ui.setMouseCursor(ui.MouseCursor.ResizeEW) end
         end)
 
         ui.tabItem('Indicators', function()
-            if not isOnlineRace then return end
-
             if string.match(trackFolderName, 'shuto_revival_project') then
 				if ui.checkbox('Speed Camera Warnings', settings.orbisIndicator) then settings.orbisIndicator = not settings.orbisIndicator end
-                tooltip('Light indicator blinks when approaching a speedtrap.')
+                tooltip('Light indicator blinks when approaching a speedtrap.\nDisables every other indicator when active.')
 			end
 
             if ui.checkbox('Light Indicator', settings.lightsIndicator) then settings.lightsIndicator = not settings.lightsIndicator end
@@ -250,10 +266,12 @@ function script.settings()
                     tooltip('Fades the arrow indicator in/out.')
                 end
 
-                if ui.checkbox('Disable Indicators for Traffic Cars', settings.excludeAI) then settings.excludeAI = not settings.excludeAI end
+                if isOnlineRace then
+                    if ui.checkbox('Disable Indicators for Traffic Cars', settings.excludeAI) then settings.excludeAI = not settings.excludeAI end
+                end
 
 				settings.indicatorActiveRange = ui.slider('##indicatorActiveRange', settings.indicatorActiveRange, 5, 50, 'Activation Range: %.0fm')
-				tooltip('From how far away the indicators activate.\nNot including orbis warnings.', ui.MouseCursor.ResizeEW)
+                tooltip('From how far away the indicators activate.', ui.MouseCursor.ResizeEW)
 
                 ui.unindent()
 			end
@@ -285,7 +303,7 @@ function script.settings()
 
             local issueUrl = 'https://github.com/lint069/ac-nfs-mirror/issues/new' .. '?template=bug_report.yml'
 
-            ui.setCursor(vec2(143, 82))
+            ui.setCursor(vec2(145, 82))
             if ui.button('Report an issue') then os.openURL(issueUrl, true) end
             tooltip('Requires a GitHub account.\nAlternatively, you can contact me on Discord: @wallpaperengineman', ui.MouseCursor.Hand)
 
@@ -296,23 +314,28 @@ end
 
 --#endregion
 
---#region main window
+--#region script init
 
-function script.windowMain()
-    if settings.centerApp then centerApp() end
-
-    colors.mirror:set(rgb(1, 1, 1), settings.mirrorTransparent and 0.8 or 1)
-
+function script.init()
     local manifest = ac.INIConfig.load(ac.getFolder(ac.FolderID.ACAppsLua) .. '/nfs-mirror/manifest.ini', ac.INIFormat.Extended)
     app.version = manifest:get('ABOUT', 'VERSION', 0.00)
+end
 
-    local size = vec2(500, 195):scale(settings.appScale)
+--#endregion
+
+--#region main window
+
+function script.windowMain(dt)
+    if settings.SimplifiedComposition then ui.forceSimplifiedComposition(true) end
+    if settings.centerApp then centerApp() end
+
+    local size = vec2(500, 211):scale(settings.appScale)
 
     ui.childWindow('mirror', vec2(size.x, size.y), function()
         drawMirror()
         drawRing()
         drawArrow()
-        drawLight()
+        drawLight(dt)
     end)
 end
 
