@@ -1,4 +1,3 @@
----It's not a bug, it's a feature. - me
 ---@diagnostic disable: need-check-nil, lowercase-global
 
 require 'orbis'
@@ -33,16 +32,20 @@ local colors = {
     mirror = rgbm(0, 0, 0, 1),
     led = rgbm(0.74, 0.93, 0.25, 1),
     ledWarn = rgbm(0.98, 0.66, 0.25, 1),
-
     circleInner = rgbm(0.5, 0.6, 0.19, 0.8),
     circleFill = rgbm(0.26, 0.29, 0.12, 0.5),
     circleOuter = rgbm(0.36, 0.4, 0.22, 0.5),
-
     issueButton = {
         idle = rgbm(0.5, 0.2, 0.18, 1),
         hovered = rgbm(1, 0.3, 0.24, 1),
         active = rgbm(0.9, 0.38, 0.3, 1),
     },
+}
+
+local blink = {
+    timer = 0,
+    period = 1.5, --seconds
+    lastState = 0
 }
 
 --#endregion
@@ -87,10 +90,10 @@ local function centerApp()
     end
 end
 
----@return boolean @Returns true if the currently focused car is in the range of 400m of any orbis.
-local function isOrbisInRange()
-	if not string.match(trackFolderName, 'shuto_revival_project' or 'shutoko_revival_project') then
-		return false
+---@return integer @0: not in range, 1: 400m, 2: 200m, 3: 50m
+local function getOrbisState()
+	if not string.match(trackFolderName, 'shuto.*revival_project') then
+		return 0
 	end
 
 	local orbisPos = getOrbisPositions()
@@ -103,10 +106,28 @@ local function isOrbisInRange()
 		end
 	end
 
-	if dist <= 400 then
-		return true
+	if dist < 50 then
+		return 3
+    elseif dist < 200 then
+        return 2
+    elseif dist < 400 then
+        return 1
 	else
-		return false
+		return 0
+	end
+end
+
+local function updateColors()
+	colors.mirror:set(rgb(1, 1, 1), settings.mirrorOpacity)
+
+	if settings.orbisIndicator and getOrbisState() > 0 then
+		colors.circleFill:set(rgbm(0.68, 0.46, 0.15, colors.circleFill.mult))
+		colors.circleOuter:set(rgbm(0.48, 0.3, 0.1, colors.circleOuter.mult))
+		colors.circleInner:set(rgbm(0.88, 0.6, 0.2, colors.circleInner.mult))
+	else
+		colors.circleFill:set(rgbm(0.26, 0.29, 0.12, 0.5))
+		colors.circleOuter:set(rgbm(0.36, 0.4, 0.22, 0.5))
+		colors.circleInner:set(rgbm(0.5, 0.6, 0.19, 0.8))
 	end
 end
 
@@ -121,11 +142,10 @@ local function drawMirror()
 
     ui.beginTonemapping()
     ui.drawVirtualMirror(virtualMirrorPos, virtualMirrorPos + virtualMirrorSize)
-    ui.endTonemapping(1, whitePoint, true)
+    ui.endTonemapping(1, 0.8, true)
 
     local mirrorPos = vec2(0, 0)
     local mirrorSize = vec2(500, 190):scale(settings.appScale)
-    colors.mirror:set(rgb(1, 1, 1), settings.mirrorOpacity)
 
     ui.drawImage(app.images.mirror, mirrorPos, mirrorPos + mirrorSize, colors.mirror)
 end
@@ -146,37 +166,43 @@ local function drawRing()
 
     ui.pathArcTo(center, radiusInner, arcStart, arcEnd, segments)
     ui.pathStroke(colors.circleInner, false, arcThickness)
+end
 
-    if settings.orbisIndicator and isOrbisInRange() then
-        colors.circleFill:set(rgb(0.68, 0.46, 0.15), colors.circleFill.mult)
-        colors.circleOuter:set(rgb(0.48, 0.3, 0.1), colors.circleOuter.mult)
-        colors.circleInner:set(rgb(0.88, 0.6, 0.2), colors.circleInner.mult)
-    else
-        colors.circleFill:set(rgbm(0.26, 0.29, 0.12, 0.5))
-        colors.circleOuter:set(rgbm(0.36, 0.4, 0.22, 0.5))
-        colors.circleInner:set(rgbm(0.5, 0.6, 0.19, 0.8))
+---@param dt number @Delta Time
+local function drawWarning(dt)
+    local lightPos = vec2(20, 135):scale(settings.appScale)
+    local lightSize = vec2(459, 68):scale(settings.appScale)
+    local orbisState = getOrbisState()
+    local orbisActive = settings.orbisIndicator and orbisState > 0
+
+	if orbisState ~= blink.lastState then
+		blink.timer = 0
+		blink.lastState = orbisState
+	end
+
+    if orbisState == 1 then
+        blink.period = 1.5
+    elseif orbisState == 2 then
+        blink.period = 0.8
+    elseif orbisState == 3 then
+        blink.period = 0.25
+    end
+
+    blink.timer = blink.timer + dt
+
+    if orbisActive and (blink.timer % blink.period) < (blink.period * 0.5) then
+        ui.drawImage(app.images.lights, lightPos, lightPos + lightSize, colors.ledWarn)
     end
 end
 
-local blinkTimer = 0
-
----@param dt number @Delta time.
-local function drawLight(dt)
+local function drawLight()
     local lightPos = vec2(20, 135):scale(settings.appScale)
     local lightSize = vec2(459, 68):scale(settings.appScale)
-
-    local orbisActive = settings.orbisIndicator and isOrbisInRange()
-
-    local blinkTime = 2 --seconds
-    blinkTimer = blinkTimer + dt
-
-    if orbisActive and (blinkTimer % blinkTime) < (blinkTime * 0.5) then
-        ui.drawImage(app.images.lights, lightPos, lightPos + lightSize, colors.ledWarn)
-    end
 
     local nearestCar = ac.getCar.ordered(1)
     if nearestCar == nil then return end
 
+    local orbisActive = settings.orbisIndicator and getOrbisState() > 0
     local inRange = nearestCar.distanceToCamera <= settings.indicatorActiveRange
 
     if not inRange or orbisActive or (settings.excludeAI and nearestCar.isHidingLabels) then return end
@@ -192,7 +218,7 @@ local function drawArrow()
     if nearestCar == nil then return end
 
     local inRange = nearestCar.distanceToCamera <= settings.indicatorActiveRange
-    local orbisActive = settings.orbisIndicator and isOrbisInRange()
+    local orbisActive = settings.orbisIndicator and getOrbisState() > 0
 
     local arrowPos = vec2(223, 152):scale(settings.appScale)
     local arrowSize = vec2(55, 55):scale(settings.appScale)
@@ -326,6 +352,8 @@ end
 --#region main window
 
 function script.windowMain(dt)
+    updateColors()
+
     if settings.SimplifiedComposition then ui.forceSimplifiedComposition(true) end
     if settings.centerApp then centerApp() end
 
@@ -335,7 +363,8 @@ function script.windowMain(dt)
         drawMirror()
         drawRing()
         drawArrow()
-        drawLight(dt)
+        drawLight()
+        drawWarning(dt)
     end)
 end
 
