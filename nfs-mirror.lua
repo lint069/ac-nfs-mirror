@@ -73,6 +73,17 @@ local function tooltip(tooltipText, cursorType)
     end
 end
 
+---Returns v1 for sunagles below 80° and v2 for sunagles above 90°. Linear interpolation in between.
+---@param v1 number
+---@param v2 number
+---@return number
+local function twilight(v1, v2)
+    local sunAngle = ac.getSunAngle()
+
+    local mix = math.saturate((sunAngle - 80) / 10)
+    return math.lerp(v1, v2, mix)
+end
+
 --#endregion
 
 --#region logic functions
@@ -138,11 +149,21 @@ end
 local function drawMirror()
     local virtualMirrorPos = vec2(15, 16):scale(settings.appScale)
     local virtualMirrorSize = vec2(471, 130):scale(settings.appScale)
-    local whitePoint = 1.3 - (sim.lightSuggestion * 0.5) --this needs adjusting
+    local gamma, whitePoint = 0, 0
+
+    if sim.isLinearColorSpaceActive then
+        gamma = twilight(2.5, 1.25)
+        whitePoint = twilight(8, 1)
+    else
+        gamma = twilight(1, 1)
+        whitePoint = twilight(1.8, 1)
+    end
 
     ui.beginTonemapping()
+    ui.beginMIPBias()
     ui.drawVirtualMirror(virtualMirrorPos, virtualMirrorPos + virtualMirrorSize)
-    ui.endTonemapping(1, 0.8, true)
+    ui.endMIPBias(-2)
+    ui.endTonemapping(gamma, whitePoint, true)
 
     local mirrorPos = vec2(0, 0)
     local mirrorSize = vec2(500, 190):scale(settings.appScale)
@@ -296,7 +317,7 @@ function script.settings()
                     if ui.checkbox('Disable Indicators for Traffic Cars', settings.excludeAI) then settings.excludeAI = not settings.excludeAI end
                 end
 
-				settings.indicatorActiveRange = ui.slider('##indicatorActiveRange', settings.indicatorActiveRange, 5, 50, 'Activation Range: %.0fm')
+				settings.indicatorActiveRange = ui.slider('##indicatorActiveRange', settings.indicatorActiveRange, 10, 50, 'Activation Range: %.0fm')
                 tooltip('From how far away the indicators activate.', ui.MouseCursor.ResizeEW)
 
                 ui.unindent()
@@ -352,6 +373,9 @@ end
 --#region main window
 
 function script.windowMain(dt)
+    local cameraValid = sim.cameraMode < 3 or sim.cameraMode == 5
+    if not cameraValid then return end
+
     updateColors()
 
     if settings.SimplifiedComposition then ui.forceSimplifiedComposition(true) end
