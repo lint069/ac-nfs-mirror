@@ -17,6 +17,7 @@ local settings = ac.storage {
     fadeArrow = true,
     excludeAI = false,
     indicatorActiveRange = 30, --in meters
+    clampArrow = true,
 }
 
 local app = {
@@ -262,6 +263,10 @@ local function drawArrow()
 
         angle = angle + 90
 
+        if settings.clampArrow then
+            angle = math.clampN(angle, 0, 180)
+        end
+
         local startFade = settings.indicatorActiveRange / 2
         local fadeLength = settings.indicatorActiveRange - startFade
         local opacity = settings.fadeArrow and math.lerp(1, 0, math.clamp((nearestCar.distanceToCamera - startFade) / fadeLength, 0, 1)) or 1
@@ -311,6 +316,9 @@ function script.settings()
                 if settings.arrowIndicator then
                     if ui.checkbox('Fade Arrow', settings.fadeArrow) then settings.fadeArrow = not settings.fadeArrow end
                     tooltip('Fades the arrow indicator in/out.')
+
+                    if ui.checkbox('Clamp Arrow', settings.clampArrow) then settings.clampArrow = not settings.clampArrow end
+                    tooltip('Clamps the arrow indicator to a range of 0°-180° of movement.')
                 end
 
                 if isOnlineRace then
